@@ -1,0 +1,102 @@
+### Using Machine Learning to Predict Correct Dumbell Movement
+
+
+#### Synopsis
+This project seeks to utilize machine learning techniques to predict correct dumbell movement. The data used in this project comes from the study listed in the section "Weight Lifting Exercises Dataset":
+
+http://groupware.les.inf.puc-rio.br/har
+
+Given the classification of 5 distinct dumbell movements, with only one being a correct movement, this project creates a model that is able to predict which of the 5 classes a given movement belongs to, with a better than 99% accuracy.
+
+A subset of the R code used in the project is provide here, with the complete R code listed in the same Github repository as this presentation.
+
+
+#### Get and Load Data
+```{r, get_load, warning=FALSE}
+trainURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(trainURL, "pml-training.csv",  method="curl")
+download.file(testURL, "pml-testing.csv",  method="curl")
+
+pml_training <- read.csv("./pml-training.csv", na.strings = c("NA", ""))
+pml_testing <- read.csv("./pml-testing.csv", na.strings = c("NA", ""))
+```
+
+
+#### Initial Data Analysis
+Our first step in building a prediction model is to eliminate predictors that are not going to be useful in response prediction. Our first glance at the data shows that there are many variables with NA values:
+```{r, init_data}
+training_na_values = sapply(pml_training, function(x) {sum(is.na(x))})
+table(training_na_values)
+```
+Here we see that 100 columns have a majority of NA values. There are only 19,622 observations in our training data sample, and 100 columns have NA values of greater than 19,000, so we remove those columns:
+```{r, remove_na_cols}
+na_columns <- colSums(is.na(pml_training))        
+columns_to_remove <- (na_columns >= 19216)             
+pml_training_cleaned <- pml_training[!columns_to_remove]
+```
+Next we remove the first 7 columns, which are participant identifiers and likely do not have predictive value:
+```{r, remove_part_cols}
+pml_training_cleaned = pml_training_cleaned[,-c(1:7)]
+dim(pml_training_cleaned)
+```
+We are now left with 53 variables - 52 predictors and one response for movement type.
+
+
+#### Build Model
+Given that we are seeking to predict one of 5 distinct movement types, we can immediately see that this data lends itself to a classification model rather than a linear model:
+```{r, review_classe}
+summary(pml_training_cleaned$classe)
+plot(pml_training_cleaned$classe,
+     col=c("red", "orange", "yellow", "green", "blue"),
+     main = "Histogram of Classe",
+     xlab = "Dumbell Movement Type")
+```
+
+We will select the Random Forest algorithm as the classification model for this project. 
+
+Cross validation is automatically implemented with the Random Forest model using a bootstrap methodology, so we will not be implementing additional cross validation methods such as K-fold in this project.
+
+We will split the provided training data into two subsets, one for training the model, and one for final testing and estimating out-of-sample error and model accuracy.
+```{r, init_libs, echo=FALSE, warning=FALSE, message=FALSE}
+library(caret)
+library(randomForest)
+library(e1071)
+```
+
+```{r, part_data}
+set.seed(100)
+train_index <- createDataPartition(y=pml_training_cleaned$classe, p=0.7, list=FALSE)
+training <- pml_training_cleaned[train_index,]
+testing <- pml_training_cleaned[-train_index,]
+```
+
+```{r, model_build, eval=FALSE}
+classe_prediction <- train(training$classe ~ .,
+                           data = training,
+                           method = "rf",
+                           prox = TRUE)
+```
+
+```{r, get_saved_model, echo=FALSE}
+classe_prediction = readRDS("class_pred_model.RDS")
+```
+
+```{r, model_sum, echo=FALSE}
+print(classe_prediction)
+```
+
+
+### Estimate Model Accuracy
+Now we will run the model against the training data to estimate in-sample accuracy. We expect this to be high as this was the data used to build the model!
+```{r, train_predict}
+classe_prediction_train <- predict(classe_prediction, training)
+confusionMatrix(classe_prediction_train, training$classe)
+```
+As expected, the accuracy was very high - nearly 100%. We may need to revisit the model to remove additional predictor variables to avoid overfitting, but we will run the model against the test sample to determine the estimated out-of-sample accuracy:
+```{r, test_predict, echo=FALSE}
+classe_prediction_test <- predict(classe_prediction, testing)
+confusionMatrix(classe_prediction_test, testing$classe)
+```
+We see that the accuracy over the test data is 99.85%, and can conclude that out-of sample error will be approximately 1.0 - 0.9985 = 0.15%. Based on this level of accuracy, we will stand by the model listed above as our final model and are confident that it will predict dumbell movement type with a high degree of accuracy.
+
